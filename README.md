@@ -1,6 +1,6 @@
 # SpectreAgent
 
-A CLI tool that runs hardened GitHub Copilot agents against a local repository inside a locked-down Podman container.
+A testing ground for running hardened GitHub Copilot agents against a local repository inside a locked-down Podman container.
 
 ## Overview
 
@@ -16,7 +16,7 @@ Both agents run inside a hardened Podman container that:
 * **Restricts the filesystem** – only the mounted repository is accessible.
 * **Restricts the network** – outbound traffic is blocked by `iptables`/`ip6tables` except for DNS and explicitly whitelisted HTTPS domains.
 * **Drops privileges** – the agent process runs as an unprivileged user inside the container.
-* **Prompts for permission** – whenever an agent wants to **create a new file**, the CLI pauses and asks you to Allow, Allow-Directory, Allow-All, or Deny.
+* **Prompts for permission** – whenever an agent wants to **create a new file**, the host must grant approval via the IPC mechanism.
 
 ---
 
@@ -24,7 +24,6 @@ Both agents run inside a hardened Podman container that:
 
 | Tool | Purpose |
 |------|---------|
-| [.NET 8+](https://dotnet.microsoft.com/download) | Build / run the CLI |
 | [Podman](https://podman.io/docs/installation) | Run the hardened container |
 | [GitHub CLI (`gh`)](https://cli.github.com/) | (Optional) retrieve a GitHub token automatically |
 
@@ -32,142 +31,69 @@ Both agents run inside a hardened Podman container that:
 
 ## Quick Start
 
-### 1. Build the CLI
-
-```bash
-cd src/Spectre.Agent
-dotnet build
-dotnet run -- --help
-```
-
-Or publish a self-contained binary:
-
-```bash
-dotnet publish -c Release -r linux-x64 --self-contained -o ~/.local/bin
-```
-
-### 2. Build the container image
+### 1. Build the container image
 
 ```bash
 podman build -t spectre-agent:latest -f container/Containerfile .
 ```
 
-### 3. Configure credentials
+### 2. Set environment variables
 
 ```bash
-spectre-agent setup
+export GITHUB_TOKEN=ghp_xxxx        # GitHub PAT with 'copilot' scope
+export COPILOT_MODEL=gpt-4o         # Optional, defaults to gpt-4o
 ```
 
-This will:
-1. Try to read a GitHub token via `gh auth token`.
-2. If that fails, prompt you to enter a token manually.
-3. Save the configuration to `~/.spectre-agent/config.json` (owner-read-only).
-
-You can also pass the token directly:
+### 3. Run the planner agent
 
 ```bash
-spectre-agent setup --token ghp_xxxx
+podman run --rm -it \
+  --cap-drop=ALL --cap-add=NET_ADMIN --security-opt=no-new-privileges \
+  --network=bridge \
+  --volume "$(pwd):/workspace:Z" \
+  --volume "$(pwd)/agents:/agents:ro,Z" \
+  --env GITHUB_TOKEN \
+  --env COPILOT_MODEL \
+  --env AGENT_NAME=planner \
+  --env "AGENT_PROMPT=Add a health-check endpoint to the API" \
+  --env PLAN_FILE=/workspace/.spectre-plan.md \
+  spectre-agent:latest
 ```
 
-### 4. Run both agents
+### 4. Review and run the executor agent
 
 ```bash
-spectre-agent run "Add a health-check endpoint to the API"
-```
+# Review the generated plan
+cat .spectre-plan.md
 
-SpectreAgent will:
-1. Run the **planner** agent → writes `.spectre-plan.md` in the current directory.
-2. Show you the plan path and start the **executor** agent.
-3. Prompt you for permission every time a new file would be created.
+# Run executor against the plan
+podman run --rm -it \
+  --cap-drop=ALL --cap-add=NET_ADMIN --security-opt=no-new-privileges \
+  --network=bridge \
+  --volume "$(pwd):/workspace:Z" \
+  --volume "$(pwd)/agents:/agents:ro,Z" \
+  --env GITHUB_TOKEN \
+  --env COPILOT_MODEL \
+  --env AGENT_NAME=executor \
+  --env PLAN_FILE=/workspace/.spectre-plan.md \
+  spectre-agent:latest
+```
 
 ---
 
-## Commands
+## File-creation permission IPC
 
-```
-spectre-agent setup      Configure GitHub token and model
-spectre-agent run        Run planner then executor (full pipeline)
-spectre-agent plan       Run only the planner agent
-spectre-agent execute    Run only the executor agent against a plan file
-spectre-agent whitelist  Add a domain to the network allowlist
-```
+When an agent tries to create a new file it writes a JSON request to `.spectre-ipc/requests/` and waits for a response in `.spectre-ipc/responses/`. The host process is responsible for reading requests and writing responses:
 
-### `setup`
+```json
+// request: .spectre-ipc/requests/<uuid>.json
+{ "id": "...", "filePath": "/workspace/src/health.ts", "directory": "/workspace/src", "reason": "Creating new controller" }
 
-```
-spectre-agent setup [--token <TOKEN>] [--model <MODEL>]
+// response: .spectre-ipc/responses/<uuid>.response
+{ "granted": true }
 ```
 
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--token` | *(prompted)* | GitHub PAT with `copilot` scope |
-| `--model` | `gpt-4o` | Copilot model to use |
-
-### `run`
-
-```
-spectre-agent run <PROMPT> [--repo <PATH>] [--plan-file <FILE>] [--approve-all]
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `<PROMPT>` | *(required)* | Natural-language change description |
-| `--repo` | Current directory | Repository root to mount |
-| `--plan-file` | `.spectre-plan.md` | Where to write/read the plan |
-| `--approve-all` | false | Skip all permission prompts |
-
-### `plan`
-
-```
-spectre-agent plan <PROMPT> [--repo <PATH>] [--plan-file <FILE>]
-```
-
-Runs only the planner agent and writes a Markdown plan. Useful for reviewing the plan before committing to execution.
-
-### `execute`
-
-```
-spectre-agent execute <PLAN_FILE> [--repo <PATH>] [--approve-all]
-```
-
-Runs only the executor agent against an existing plan file.
-
-### `whitelist`
-
-```
-spectre-agent whitelist <DOMAIN>
-```
-
-Adds a domain to the outbound network allowlist stored in `~/.spectre-agent/config.json`. The following domains are always allowed inside the container so the agents can reach GitHub Copilot:
-
-* `api.github.com`
-* `copilot-proxy.githubusercontent.com`
-* `githubcopilot.com`
-
----
-
-## File-creation permission prompts
-
-When an agent tries to create a new file the CLI pauses and presents a prompt:
-
-```
-[Permission request] The agent wants to create a file:
-  Path: /path/to/new-file.ts
-  Reason: Creating new controller as part of the plan
-
-? How do you want to proceed?
-> Allow this file
-  Allow all files in /path/to/
-  Allow all (approve everything from now on)
-  Deny
-```
-
-| Choice | Effect |
-|--------|--------|
-| **Allow this file** | Permits only this specific file. |
-| **Allow all files in …** | Permits all future files in that directory. |
-| **Allow all** | Disables prompts for the rest of the run (same as `--approve-all`). |
-| **Deny** | Rejects the request; the agent will raise `PermissionError` and abort. |
+If the IPC directory is not present the agents default to granting permission automatically.
 
 ---
 
@@ -187,10 +113,6 @@ The container uses the following hardening measures:
 
 ```
 .
-├── src/
-│   └── Spectre.Agent/       # C# CLI (Spectre.Console.Cli)
-│       ├── Commands/        # setup, run, plan, execute, whitelist
-│       └── Services/        # ContainerService, ConfigService, GithubTokenService
 ├── agents/
 │   ├── planner/             # Python planner agent
 │   ├── executor/            # Python executor agent
