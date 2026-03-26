@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Spectre Agent – hardened container image
+#
+# Build:  podman build -t spectre-agent:latest -f container/Containerfile .
+# ─────────────────────────────────────────────────────────────────────────────
+
+FROM python:3.12-slim
+
+# ── System packages ───────────────────────────────────────────────────────────
+# iptables/ip6tables for the firewall, curl for healthchecks
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      iptables \
+      ip6tables \
+      iproute2 \
+      curl \
+      ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# ── Non-root user ─────────────────────────────────────────────────────────────
+RUN useradd --uid 1000 --gid 0 --no-create-home --shell /bin/bash agent
+
+# ── Python dependencies for agents ───────────────────────────────────────────
+# No extra packages are needed – the agents use only the stdlib.
+# If you add packages, list them in agents/requirements.txt and uncomment:
+# COPY agents/requirements.txt /tmp/requirements.txt
+# RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# ── Entrypoint ────────────────────────────────────────────────────────────────
+COPY container/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY container/firewall.sh   /usr/local/bin/firewall.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/firewall.sh
+
+# ── Workspace mount point ─────────────────────────────────────────────────────
+RUN mkdir -p /workspace && chown 1000:0 /workspace
+
+# ── Agents are mounted at runtime (read-only) ─────────────────────────────────
+# podman run --volume ./agents:/agents:ro ...
+
+WORKDIR /workspace
+
+# The entrypoint runs as root briefly (to set up iptables), then drops to
+# the unprivileged 'agent' user before executing the Python agent.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

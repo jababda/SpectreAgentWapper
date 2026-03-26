@@ -52,3 +52,17 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Spectre Agent generated plan files (user artifacts, not source)
+.spectre-plan.md
+.spectre-ipc/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
