@@ -54,8 +54,8 @@ class CopilotClient:
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "Copilot-Integration-Id": "spectre-agent",
-                "Editor-Version": "spectre-agent/1.0",
+                "Copilot-Integration-Id": "copilot-agent",
+                "Editor-Version": "copilot-agent/1.0",
             },
         )
 

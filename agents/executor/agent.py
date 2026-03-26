@@ -4,7 +4,7 @@ Executor Agent
 Reads the plan markdown produced by the planner agent and carries out
 the described file operations.
 
-Environment variables (set by the Spectre CLI):
+Environment variables (set by the host CLI):
   GITHUB_TOKEN   – Personal access token with 'copilot' scope
   COPILOT_MODEL  – Model name (e.g. gpt-4o)
   AGENT_PROMPT   – Path to the plan markdown file (inside the container)
@@ -27,7 +27,7 @@ from permissions import request_permission  # noqa: E402
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 MODEL = os.environ.get("COPILOT_MODEL", "gpt-4o")
 PLAN_FILE = Path(os.environ["PLAN_FILE"])
-IPC_DIR = Path(os.environ.get("IPC_DIR", "/workspace/.spectre-ipc"))
+IPC_DIR = Path(os.environ.get("IPC_DIR", "/workspace/.agent-ipc"))
 WORKSPACE = Path("/workspace")
 
 

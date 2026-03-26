@@ -1,10 +1,10 @@
-# SpectreAgent
+# CopilotAgent
 
 A testing ground for running hardened GitHub Copilot agents against a local repository inside a locked-down Podman container.
 
 ## Overview
 
-SpectreAgent orchestrates two AI agents:
+CopilotAgent orchestrates two AI agents:
 
 | Agent | Role |
 |-------|------|
@@ -34,7 +34,7 @@ Both agents run inside a hardened Podman container that:
 ### 1. Build the container image
 
 ```bash
-podman build -t spectre-agent:latest -f container/Containerfile .
+podman build -t copilot-agent:latest -f container/Containerfile .
 ```
 
 ### 2. Set environment variables
@@ -56,15 +56,15 @@ podman run --rm -it \
   --env COPILOT_MODEL \
   --env AGENT_NAME=planner \
   --env "AGENT_PROMPT=Add a health-check endpoint to the API" \
-  --env PLAN_FILE=/workspace/.spectre-plan.md \
-  spectre-agent:latest
+  --env PLAN_FILE=/workspace/.agent-plan.md \
+  copilot-agent:latest
 ```
 
 ### 4. Review and run the executor agent
 
 ```bash
 # Review the generated plan
-cat .spectre-plan.md
+cat .agent-plan.md
 
 # Run executor against the plan
 podman run --rm -it \
@@ -75,21 +75,21 @@ podman run --rm -it \
   --env GITHUB_TOKEN \
   --env COPILOT_MODEL \
   --env AGENT_NAME=executor \
-  --env PLAN_FILE=/workspace/.spectre-plan.md \
-  spectre-agent:latest
+  --env PLAN_FILE=/workspace/.agent-plan.md \
+  copilot-agent:latest
 ```
 
 ---
 
 ## File-creation permission IPC
 
-When an agent tries to create a new file it writes a JSON request to `.spectre-ipc/requests/` and waits for a response in `.spectre-ipc/responses/`. The host process is responsible for reading requests and writing responses:
+When an agent tries to create a new file it writes a JSON request to `.agent-ipc/requests/` and waits for a response in `.agent-ipc/responses/`. The host process is responsible for reading requests and writing responses:
 
 ```json
-// request: .spectre-ipc/requests/<uuid>.json
+// request: .agent-ipc/requests/<uuid>.json
 { "id": "...", "filePath": "/workspace/src/health.ts", "directory": "/workspace/src", "reason": "Creating new controller" }
 
-// response: .spectre-ipc/responses/<uuid>.response
+// response: .agent-ipc/responses/<uuid>.response
 { "granted": true }
 ```
 

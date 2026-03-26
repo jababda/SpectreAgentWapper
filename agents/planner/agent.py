@@ -4,7 +4,7 @@ Planner Agent
 Reads the AGENT_PROMPT environment variable, queries the GitHub Copilot / Models
 API, and writes a structured markdown plan to PLAN_FILE.
 
-Environment variables (set by the Spectre CLI):
+Environment variables (set by the host CLI):
   GITHUB_TOKEN   – Personal access token with 'copilot' scope
   COPILOT_MODEL  – Model name (e.g. gpt-4o)
   AGENT_PROMPT   – Natural-language change request
@@ -28,7 +28,7 @@ GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 MODEL = os.environ.get("COPILOT_MODEL", "gpt-4o")
 PROMPT = os.environ["AGENT_PROMPT"]
 PLAN_FILE = Path(os.environ["PLAN_FILE"])
-IPC_DIR = Path(os.environ.get("IPC_DIR", "/workspace/.spectre-ipc"))
+IPC_DIR = Path(os.environ.get("IPC_DIR", "/workspace/.agent-ipc"))
 WORKSPACE = Path("/workspace")
 
 # Maximum number of file paths to include in the repo summary sent to the model.

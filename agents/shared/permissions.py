@@ -3,7 +3,7 @@ File-creation permission interceptor.
 
 When an agent wants to create a new file it calls `request_permission()`.
 This function writes a JSON request to the IPC directory and then polls
-for a response written by the Spectre CLI running on the host.
+for a response written by the CLI running on the host.
 
 If the IPC directory is not available the function defaults to granting
 permission (useful for testing outside the container).

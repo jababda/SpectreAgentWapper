@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Spectre Agent container entrypoint
+# Agent container entrypoint
 # =============================================================================
 # Execution flow:
 #   1. (root) Configure iptables firewall
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 AGENT_NAME="${AGENT_NAME:?AGENT_NAME environment variable is required}"
-IPC_DIR="${IPC_DIR:-/workspace/.spectre-ipc}"
+IPC_DIR="${IPC_DIR:-/workspace/.agent-ipc}"
 AGENTS_DIR="/agents"
 
 # ── Step 1: Configure firewall (runs as root) ─────────────────────────────────

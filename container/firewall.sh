@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Firewall setup for the Spectre Agent container
+# Firewall setup for the agent container
 # =============================================================================
 # This script is executed as root BEFORE dropping privileges to the agent user.
 # It configures iptables to:
@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-ALLOWED_DOMAINS_FILE="${1:-/workspace/.spectre-ipc/allowed-domains.txt}"
+ALLOWED_DOMAINS_FILE="${1:-/workspace/.agent-ipc/allowed-domains.txt}"
 
 # ── Flush existing rules ──────────────────────────────────────────────────────
 iptables  -F OUTPUT 2>/dev/null || true
