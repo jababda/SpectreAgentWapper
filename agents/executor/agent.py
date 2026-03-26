@@ -7,9 +7,10 @@ the described file operations.
 Environment variables (set by the host CLI):
   GITHUB_TOKEN   – Personal access token with 'copilot' scope
   COPILOT_MODEL  – Model name (e.g. gpt-4o)
-  AGENT_PROMPT   – Path to the plan markdown file (inside the container)
-  PLAN_FILE      – Same as AGENT_PROMPT for the executor
+  PLAN_FILE      – Path to the plan markdown file
+  WORKSPACE      – Root of the repository to operate on (defaults to cwd)
   IPC_DIR        – Path to the IPC directory used for permission requests
+                   (defaults to <WORKSPACE>/.agent-ipc)
 """
 
 import os
@@ -19,7 +20,9 @@ import re
 import textwrap
 from pathlib import Path
 
-sys.path.insert(0, "/agents/shared")
+# Add shared utilities to path, resolved relative to this file so the agents
+# work both inside the container (at /agents/…) and in any other location.
+sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
 
 from copilot_client import CopilotClient  # noqa: E402
 from permissions import request_permission  # noqa: E402
@@ -27,8 +30,10 @@ from permissions import request_permission  # noqa: E402
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 MODEL = os.environ.get("COPILOT_MODEL", "gpt-4o")
 PLAN_FILE = Path(os.environ["PLAN_FILE"])
-IPC_DIR = Path(os.environ.get("IPC_DIR", "/workspace/.agent-ipc"))
-WORKSPACE = Path("/workspace")
+# WORKSPACE defaults to the current working directory so the agents can be
+# invoked outside the container (e.g. directly by GitHub Copilot agents).
+WORKSPACE = Path(os.environ.get("WORKSPACE", os.getcwd()))
+IPC_DIR = Path(os.environ.get("IPC_DIR", str(WORKSPACE / ".agent-ipc")))
 
 
 SYSTEM_PROMPT = textwrap.dedent("""
