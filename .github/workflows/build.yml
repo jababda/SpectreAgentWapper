@@ -24,12 +24,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Compute lowercase image tag
+        id: image
+        run: |
+          tag="${REGISTRY}/${IMAGE_NAME,,}:pr-${PR_NUMBER}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
       - name: Build Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./docker
           push: false
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
+          tags: ${{ steps.image.outputs.tag }}
           # Layer caching via GitHub Actions cache
           cache-from: type=gha
           cache-to: type=gha,mode=max
