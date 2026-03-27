@@ -29,7 +29,7 @@ if ! findmnt --mountpoint /workspace --noheadings > /dev/null 2>&1; then
     echo "" >&2
     echo "[entrypoint] ERROR: /workspace is not mounted from the host." >&2
     echo "  Please provide a bind-mount when running the container, e.g.:" >&2
-    echo "    docker run --rm -v \"\$(pwd):/workspace\" ghcr.io/OWNER/spectreagent <command>" >&2
+    echo "    docker run --rm -v \"\$(pwd):/workspace\" ghcr.io/OWNER/spectreagent suggest \"<your question>\"" >&2
     echo "" >&2
     exit 1
 fi
@@ -40,4 +40,4 @@ echo "[entrypoint] Workspace mounted at /workspace — OK."
 # 3. Drop to unprivileged user and execute the requested command
 # ---------------------------------------------------------------------------
 cd /workspace
-exec gosu agent "$@"
+exec gosu agent gh copilot "$@"

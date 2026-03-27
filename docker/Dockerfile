@@ -77,5 +77,5 @@ WORKDIR /workspace
 # Entrypoint runs as root to apply firewall rules, then drops to 'agent'
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# Default: show Copilot CLI help
-CMD ["gh", "copilot", "--help"]
+# Default: show Copilot CLI help (users pass only the sub-command, e.g. suggest / explain)
+CMD ["--help"]
