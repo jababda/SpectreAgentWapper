@@ -52,7 +52,8 @@ RUN useradd -m -u 1000 -s /bin/bash agent
 # GitHub Copilot CLI extension (installed for the 'agent' user)
 # ---------------------------------------------------------------------------
 USER agent
-RUN gh extension install github/gh-copilot --force
+RUN --mount=type=secret,id=GH_TOKEN,env=GH_TOKEN \
+    gh extension install github/gh-copilot --force
 USER root
 
 # ---------------------------------------------------------------------------
