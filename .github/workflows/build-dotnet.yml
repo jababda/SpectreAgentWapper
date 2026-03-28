@@ -1,0 +1,29 @@
+name: Build .NET Application (PR Check)
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build CopilotWrapper
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore src/CopilotWrapper/CopilotWrapper.csproj
+
+      - name: Build
+        run: dotnet build src/CopilotWrapper/CopilotWrapper.csproj --no-restore --configuration Release
