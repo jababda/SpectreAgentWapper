@@ -7,6 +7,8 @@
     <Nullable>enable</Nullable>
     <AssemblyName>copilot-wrapper</AssemblyName>
     <RootNamespace>CopilotWrapper</RootNamespace>
+    <!-- Supported publish targets — declared here so a single 'dotnet restore' covers both -->
+    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
     <!-- Publish as a self-contained single-file executable for each target platform -->
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
