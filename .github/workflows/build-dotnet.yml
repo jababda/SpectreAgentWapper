@@ -23,7 +23,10 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore dependencies
-        run: dotnet restore src/CopilotWrapper/CopilotWrapper.csproj
+        run: dotnet restore src/SpecterAgentWrapper/SpecterAgentWrapper.sln
 
       - name: Build
-        run: dotnet build src/CopilotWrapper/CopilotWrapper.csproj --no-restore --configuration Release
+        run: dotnet build src/SpecterAgentWrapper/SpecterAgentWrapper.sln --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test src/SpecterAgentWrapper.Tests/SpecterAgentWrapper.Tests.csproj --configuration Release --verbosity normal
