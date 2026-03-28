@@ -1,0 +1,57 @@
+name: Build .NET Application (PR Check)
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build CopilotWrapper
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore dependencies
+        run: dotnet restore src/CopilotWrapper/CopilotWrapper.csproj
+
+      - name: Build
+        run: dotnet build src/CopilotWrapper/CopilotWrapper.csproj --no-restore --configuration Release
+
+      - name: Publish (linux-x64)
+        run: >
+          dotnet publish src/CopilotWrapper/CopilotWrapper.csproj
+          --no-restore
+          --configuration Release
+          --runtime linux-x64
+          --output ./publish/linux-x64
+
+      - name: Publish (win-x64)
+        run: >
+          dotnet publish src/CopilotWrapper/CopilotWrapper.csproj
+          --no-restore
+          --configuration Release
+          --runtime win-x64
+          --output ./publish/win-x64
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: copilot-wrapper-linux-x64
+          path: ./publish/linux-x64/copilot-wrapper
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: copilot-wrapper-win-x64
+          path: ./publish/win-x64/copilot-wrapper.exe
