@@ -43,6 +43,8 @@ jobs:
           tags: |
             # Branch name on branch pushes
             type=ref,event=branch
+            # Latest tag on default branch (main)
+            type=raw,value=latest,enable={{is_default_branch}}
             # Full semver on version tags  (e.g. v1.2.3 → 1.2.3)
             type=semver,pattern={{version}}
             # Major.minor semver            (e.g. v1.2.3 → 1.2)
