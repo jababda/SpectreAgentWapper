@@ -16,7 +16,6 @@ jobs:
 
     permissions:
       contents: read
-      packages: read
 
     steps:
       - name: Checkout repository
@@ -41,8 +40,6 @@ jobs:
           context: ./docker
           push: false
           tags: ${{ steps.image.outputs.tag }}
-          secrets: |
-            GH_TOKEN=${{ secrets.GITHUB_TOKEN }}
           # Layer caching via GitHub Actions cache
           cache-from: type=gha
           cache-to: type=gha,mode=max

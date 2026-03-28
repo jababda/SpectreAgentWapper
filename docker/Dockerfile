@@ -49,14 +49,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 RUN useradd -m -u 1000 -s /bin/bash agent
 
 # ---------------------------------------------------------------------------
-# GitHub Copilot CLI extension (installed for the 'agent' user)
-# ---------------------------------------------------------------------------
-USER agent
-RUN --mount=type=secret,id=GH_TOKEN,env=GH_TOKEN \
-    gh extension install github/gh-copilot --force
-USER root
-
-# ---------------------------------------------------------------------------
 # Workspace — callers MUST bind-mount a host directory here at runtime.
 # The entrypoint enforces this and aborts if no bind-mount is found.
 # ---------------------------------------------------------------------------
