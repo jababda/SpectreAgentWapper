@@ -53,7 +53,7 @@ static void StartCopilotContainer(string workingDirectory)
                      $"--cap-drop ALL --cap-add NET_ADMIN " +
                      $"--security-opt no-new-privileges:true " +
                      $"-v \"{mountPath}:/workspace\" " +
-                     $"ghcr.io/jababda/spectreagentWapper";
+                     $"ghcr.io/jababda/spectreagentwrapper";
 
     var processInfo = new ProcessStartInfo
     {
