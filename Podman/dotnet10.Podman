@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0
+
+# --- common setup ---
+# Install Node.js/npm and the GitHub Copilot CLI package
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && npm install --global @github/copilot \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# Create non-root user with limited permissions and a dedicated workspace
+RUN useradd -ms /bin/bash copilot \
+    && mkdir -p /workspace \
+    && chown copilot:copilot /workspace
+
+USER copilot
+# --- end common setup ---
+
+WORKDIR /workspace
+

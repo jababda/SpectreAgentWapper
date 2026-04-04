@@ -1,0 +1,23 @@
+name: PR Build
+
+on:
+  pull_request:
+    paths:
+      - 'Podman/**'
+  workflow_dispatch:
+
+jobs:
+  build-default:
+    name: Build Default Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Build Default Image
+        run: podman build -f Podman/dotnet10.Podman -t spectre-copilot-default:pr .

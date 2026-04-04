@@ -42,8 +42,11 @@ copilot cli can do and access.
 The default image is a dotnet 10 image with the copilot cli pre-installed, and a non-root user with limited permissions.
 
 ### Images
-- `spectre-copilot-default`: The default image, based on dotnet 10 with the copilot cli pre-installed and a non-root user with limited permissions. This image is built from the Podmanfile.default in the repo.
-- `spectre-copilot-web`: Extends the default image with web browser capabilities, allowing the copilot cli to access the web. This image is built from the Podmanfile.web in the repo.
+- `spectre-copilot-default`: The default image, based on dotnet 10 with the copilot cli pre-installed and a non-root user with limited permissions. Built from `Podman/dotnet10.Podman`
+
+Build locally with standard Docker-compatible tooling: `docker build -f Podman/dotnet10.Podman -t spectre-copilot-default .`
+
+Images are published to the GitHub Container Registry (GHCR) automatically on merge to `main` when files under `Podman/` or the publish workflow itself change.
 
 ## Future
 - Create whitelist of allowed domains the copilot cli can access, and block all other network access from the container.
