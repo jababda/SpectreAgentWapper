@@ -30,10 +30,11 @@ library to interact with Podman.
 Testing is handled by the Spectre.Console.Cli.Testing using Xunit and FakeItEasy for mocking dependencies.
 
 ### Testing
-The integration tests build the Podman images defined in the repo and run the container to check if the copilot cli is 
-working as expected. These tests run in the local environment and require Podman to be running. 
-They are not meant to be run in a CI/CD pipeline, but rather as a way to test the application locally. 
-They also require that the environment variable "GH_COPILOT_PAT" is set, as they will not run without it.
+`ImageTests` builds each Podman image defined in the repo, starts the image's default container command, and verifies the
+container stays running for at least 10 seconds without crashing.
+
+These tests run with Podman locally and in GitHub Actions. They do not require `GH_COPILOT_PAT`, because they only
+validate image build and runtime stability rather than Copilot authentication.
 
 ## Podman images
 This repo defines a series of Podman images that can be started by the application and are designed to limit what the
@@ -42,8 +43,11 @@ copilot cli can do and access.
 The default image is a dotnet 10 image with the copilot cli pre-installed, and a non-root user with limited permissions.
 
 ### Images
-- `spectre-copilot-default`: The default image, based on dotnet 10 with the copilot cli pre-installed and a non-root user with limited permissions. This image is built from the Podmanfile.default in the repo.
-- `spectre-copilot-web`: Extends the default image with web browser capabilities, allowing the copilot cli to access the web. This image is built from the Podmanfile.web in the repo.
+- `spectre-copilot-default`: The default image, based on dotnet 10 with the copilot cli pre-installed and a non-root user with limited permissions. Built from `Podman/dotnet10.Podman`
+
+Build locally with Podman: `podman build -f Podman/dotnet10.Podman -t spectre-copilot-default .`
+
+Images are published to the GitHub Container Registry (GHCR) automatically on merge to `main` when files under `Podman/` or the publish workflow itself change.
 
 ## Future
 - Create whitelist of allowed domains the copilot cli can access, and block all other network access from the container.
