@@ -10,8 +10,32 @@ on:
   workflow_dispatch:
 
 jobs:
+  image-tests:
+    name: Run Image Smoke Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Show Podman Info
+        run: podman info
+
+      - name: Run Image Smoke Tests
+        run: dotnet test ./SpectreAgentWrapper.sln --nologo
+
   publish-default:
     name: Publish Default Image
+    needs: image-tests
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -19,6 +43,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
