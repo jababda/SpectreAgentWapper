@@ -1,6 +1,6 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Text.Json;
+using Docker.DotNet;
+using Docker.DotNet.Models;
+using SpectreAgentWrapper.Containers;
 using Xunit.Sdk;
 
 namespace SpectreAgentWrapper.ImageTests;
@@ -8,110 +8,64 @@ namespace SpectreAgentWrapper.ImageTests;
 internal sealed class PodmanSmokeTestHarness
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan BuildTimeout = TimeSpan.FromMinutes(30);
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
 
-    private readonly string repositoryRoot;
-    private readonly string imageFilePath;
-    private readonly string imageDisplayName;
-    private readonly string imageTag;
-    private readonly string containerName;
-    private bool imageBuilt;
-    private bool containerCreated;
+    private readonly string _repositoryRoot;
+    private readonly string _imageFilePath;
+    private readonly string _imageDisplayName;
+    private readonly string _imageTag;
+    private readonly string _containerName;
+    private bool _imageBuilt;
+    private bool _containerCreated;
 
     public PodmanSmokeTestHarness(string repositoryRoot, string imageFilePath)
     {
-        this.repositoryRoot = repositoryRoot;
-        this.imageFilePath = imageFilePath;
+        _repositoryRoot = repositoryRoot;
+        _imageFilePath = imageFilePath;
 
-        imageDisplayName = Path.GetFileNameWithoutExtension(imageFilePath);
+        _imageDisplayName = Path.GetFileNameWithoutExtension(imageFilePath);
 
-        var normalizedName = NormalizeForPodmanName(imageDisplayName);
+        var normalizedName = NormalizeForPodmanName(_imageDisplayName);
         var uniqueSuffix = Guid.NewGuid().ToString("N")[..12];
 
-        imageTag = $"spectre-agentwrapper-{normalizedName}-{uniqueSuffix}";
-        containerName = $"{imageTag}-container";
+        _imageTag = $"spectre-agentwrapper-{normalizedName}-{uniqueSuffix}";
+        _containerName = $"{_imageTag}-container";
     }
 
     public static async Task EnsurePodmanAvailableAsync()
     {
-        ProcessResult infoResult;
-
         try
         {
-            infoResult = await RunProcessAsync(
-                "podman",
-                new[] { "info", "--format", "json" },
-                Environment.CurrentDirectory,
-                TimeSpan.FromSeconds(30));
+            using var clientHandle = CreateClientHandle();
+            await clientHandle.Client.System.GetSystemInfoAsync(CancellationToken.None);
         }
-        catch (Win32Exception exception)
+        catch (InvalidOperationException exception)
         {
-            HandleUnavailable($"Podman CLI was not found on PATH. {exception.Message}");
-            return;
+            HandleUnavailable(exception.Message);
         }
-        catch (TimeoutException exception)
+        catch (Exception exception) when (exception is DockerApiException or HttpRequestException or TimeoutException)
         {
-            HandleUnavailable($"Timed out while checking Podman availability. {exception.Message}");
-            return;
-        }
-
-        if (infoResult.ExitCode != 0)
-        {
-            HandleUnavailable(
-                $"Podman is installed but unavailable.{Environment.NewLine}{FormatCommandFailure(infoResult)}");
+            HandleUnavailable($"Podman is installed but unavailable. {exception.Message}");
         }
     }
 
     public async Task AssertImageRunsForMinimumDurationAsync(TimeSpan minimumRuntime)
     {
-        var buildResult = await RunProcessAsync(
-            "podman",
-            new[] { "build", "-f", imageFilePath, "-t", imageTag, repositoryRoot },
-            repositoryRoot,
-            BuildTimeout);
+        using var clientHandle = CreateClientHandle();
+        var client = clientHandle.Client;
 
-        imageBuilt = buildResult.ExitCode == 0;
-
-        if (buildResult.ExitCode != 0)
-        {
-            throw new XunitException(
-                $"Failed to build image '{imageDisplayName}'.{Environment.NewLine}{FormatCommandFailure(buildResult)}");
-        }
-
-        var runResult = await RunProcessAsync(
-            "podman",
-            new[] { "run", "-d", "-i", "-t", "--name", containerName, imageTag },
-            repositoryRoot,
-            CommandTimeout);
-
-        if (runResult.ExitCode != 0)
-        {
-            throw new XunitException(
-                $"Failed to start container for image '{imageDisplayName}'.{Environment.NewLine}{FormatCommandFailure(runResult)}");
-        }
-
-        containerCreated = true;
-
-        if (string.IsNullOrWhiteSpace(runResult.StandardOutput))
-        {
-            throw new XunitException(
-                $"Podman did not return a container ID for image '{imageDisplayName}'.{Environment.NewLine}{FormatCommandFailure(runResult)}");
-        }
+        await BuildImageAsync(client);
+        await StartContainerAsync(client);
 
         var stabilityDeadline = DateTimeOffset.UtcNow + minimumRuntime;
 
         while (DateTimeOffset.UtcNow < stabilityDeadline)
         {
-            var state = await InspectContainerStateAsync();
+            var state = await InspectContainerStateAsync(client);
 
             if (!state.Running)
             {
-                throw new XunitException(await BuildStoppedContainerMessageAsync(minimumRuntime, state));
+                throw new XunitException(await BuildStoppedContainerMessageAsync(client, minimumRuntime, state));
             }
 
             var remaining = stabilityDeadline - DateTimeOffset.UtcNow;
@@ -122,11 +76,11 @@ internal sealed class PodmanSmokeTestHarness
             }
         }
 
-        var finalState = await InspectContainerStateAsync();
+        var finalState = await InspectContainerStateAsync(client);
 
         if (!finalState.Running)
         {
-            throw new XunitException(await BuildStoppedContainerMessageAsync(minimumRuntime, finalState));
+            throw new XunitException(await BuildStoppedContainerMessageAsync(client, minimumRuntime, finalState));
         }
     }
 
@@ -134,25 +88,36 @@ internal sealed class PodmanSmokeTestHarness
     {
         var failures = new List<string>();
 
-        if (containerCreated)
+        try
         {
-            await CleanupArtifactAsync(
-                failures,
-                "container",
-                containerName,
-                new[] { "rm", "-f", containerName });
-        }
+            using var clientHandle = CreateClientHandle();
+            var client = clientHandle.Client;
 
-        if (imageBuilt)
+            if (_containerCreated)
+            {
+                await CleanupContainerAsync(client, failures);
+            }
+
+            if (_imageBuilt)
+            {
+                await CleanupImageAsync(client, failures);
+            }
+        }
+        catch (InvalidOperationException exception)
         {
-            await CleanupArtifactAsync(
-                failures,
-                "image",
-                imageTag,
-                new[] { "rmi", "-f", imageTag });
+            failures.Add($"Failed to connect to Podman for cleanup: {exception.Message}");
+        }
+        catch (Exception exception) when (exception is DockerApiException or HttpRequestException or TimeoutException)
+        {
+            failures.Add($"Failed to use the Podman API for cleanup: {exception.Message}");
         }
 
         return failures;
+    }
+
+    private static PodmanApiClientHandle CreateClientHandle()
+    {
+        return new PodmanApiClientFactory(new PodmanApiConnectionResolver()).Create();
     }
 
     private static void HandleUnavailable(string message)
@@ -181,176 +146,256 @@ internal sealed class PodmanSmokeTestHarness
         return new string(buffer).Trim('-');
     }
 
-    private static async Task<ProcessResult> RunProcessAsync(
-        string fileName,
-        IReadOnlyList<string> arguments,
-        string workingDirectory,
-        TimeSpan timeout)
+    private async Task BuildImageAsync(DockerClient client)
     {
-        using var process = new Process();
-
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = fileName,
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-
-        foreach (var argument in arguments)
-        {
-            process.StartInfo.ArgumentList.Add(argument);
-        }
-
-        process.Start();
-
-        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
-        var standardErrorTask = process.StandardError.ReadToEndAsync();
-
-        using var timeoutCts = new CancellationTokenSource(timeout);
+        using var buildContextArchive = new BuildContextArchiveFactory().Create(_repositoryRoot);
+        var progressMessages = new List<string>();
 
         try
         {
-            await process.WaitForExitAsync(timeoutCts.Token);
+            await client.Images.BuildImageFromDockerfileAsync(
+                new ImageBuildParameters
+                {
+                    Dockerfile = GetArchivePath(_repositoryRoot, _imageFilePath),
+                    Tags = [_imageTag],
+                    Remove = true,
+                    ForceRemove = true,
+                },
+                buildContextArchive,
+                Array.Empty<AuthConfig>(),
+                new Dictionary<string, string>(),
+                new Progress<JSONMessage>(message => CollectBuildProgress(progressMessages, message)),
+                CancellationToken.None);
         }
-        catch (OperationCanceledException)
+        catch (DockerApiException exception)
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-            }
-
-            var timedOutOutput = await standardOutputTask;
-            var timedOutError = await standardErrorTask;
-
-            throw new TimeoutException(
-                $"Command timed out after {timeout.TotalSeconds:0} seconds: {FormatCommand(fileName, arguments)}{Environment.NewLine}" +
-                $"stdout:{Environment.NewLine}{NormalizeOutput(timedOutOutput)}{Environment.NewLine}" +
-                $"stderr:{Environment.NewLine}{NormalizeOutput(timedOutError)}");
+            throw new XunitException(
+                $"Failed to build image '{_imageDisplayName}'.{Environment.NewLine}" +
+                $"{FormatBuildFailure(progressMessages, exception.ResponseBody)}");
         }
 
-        return new ProcessResult(
-            fileName,
-            arguments,
-            process.ExitCode,
-            await standardOutputTask,
-            await standardErrorTask);
+        _imageBuilt = true;
+
+        var buildError = progressMessages.LastOrDefault(static message => message.StartsWith("ERROR: ", StringComparison.Ordinal));
+
+        if (!string.IsNullOrWhiteSpace(buildError))
+        {
+            throw new XunitException(
+                $"Failed to build image '{_imageDisplayName}'.{Environment.NewLine}" +
+                $"{FormatBuildFailure(progressMessages, additionalDetails: null)}");
+        }
     }
 
-    private static string FormatCommandFailure(ProcessResult result)
+    private async Task StartContainerAsync(DockerClient client)
+    {
+        var createResponse = await client.Containers.CreateContainerAsync(
+            new CreateContainerParameters
+            {
+                Name = _containerName,
+                Image = _imageTag,
+                AttachStdin = true,
+                OpenStdin = true,
+                Tty = true,
+            },
+            CancellationToken.None);
+
+        _containerCreated = true;
+
+        var started = await client.Containers.StartContainerAsync(
+            createResponse.ID,
+            new ContainerStartParameters(),
+            CancellationToken.None);
+
+        if (!started)
+        {
+            throw new XunitException(
+                $"Failed to start container for image '{_imageDisplayName}'.{Environment.NewLine}" +
+                "Podman returned a non-started container without an API error.");
+        }
+    }
+
+    private async Task CleanupContainerAsync(DockerClient client, List<string> failures)
+    {
+        try
+        {
+            await client.Containers.RemoveContainerAsync(
+                _containerName,
+                new ContainerRemoveParameters
+                {
+                    Force = true,
+                    RemoveVolumes = true,
+                },
+                CancellationToken.None);
+        }
+        catch (DockerContainerNotFoundException)
+        {
+        }
+        catch (DockerApiException exception)
+        {
+            failures.Add(
+                $"Failed to remove container '{_containerName}'.{Environment.NewLine}" +
+                $"{FormatApiFailure(exception)}");
+        }
+    }
+
+    private async Task CleanupImageAsync(DockerClient client, List<string> failures)
+    {
+        try
+        {
+            await client.Images.DeleteImageAsync(
+                _imageTag,
+                new ImageDeleteParameters
+                {
+                    Force = true,
+                },
+                CancellationToken.None);
+        }
+        catch (DockerImageNotFoundException)
+        {
+        }
+        catch (DockerApiException exception)
+        {
+            failures.Add(
+                $"Failed to remove image '{_imageTag}'.{Environment.NewLine}" +
+                $"{FormatApiFailure(exception)}");
+        }
+    }
+
+    private static void CollectBuildProgress(List<string> progressMessages, JSONMessage message)
+    {
+        var line =
+            message.ErrorMessage is { Length: > 0 } errorMessage ? $"ERROR: {errorMessage.Trim()}" :
+            message.Error is { Message.Length: > 0 } error ? $"ERROR: {error.Message.Trim()}" :
+            message.Stream is { Length: > 0 } stream ? stream.TrimEnd() :
+            BuildStatusLine(message);
+
+        if (!string.IsNullOrWhiteSpace(line))
+        {
+            progressMessages.Add(line);
+        }
+    }
+
+    private static string? BuildStatusLine(JSONMessage message)
+    {
+        if (string.IsNullOrWhiteSpace(message.Status))
+        {
+            return null;
+        }
+
+        return string.Join(
+            ' ',
+            new[]
+            {
+                message.Status.Trim(),
+                message.ID?.Trim(),
+                message.ProgressMessage?.Trim(),
+            }.Where(static value => !string.IsNullOrWhiteSpace(value)));
+    }
+
+    private static string FormatBuildFailure(IReadOnlyList<string> progressMessages, string? additionalDetails)
+    {
+        var sections = new List<string>
+        {
+            "Build output:",
+            progressMessages.Count == 0 ? "<empty>" : string.Join(Environment.NewLine, progressMessages.TakeLast(80)),
+        };
+
+        if (!string.IsNullOrWhiteSpace(additionalDetails))
+        {
+            sections.Add("API response:");
+            sections.Add(additionalDetails.Trim());
+        }
+
+        return string.Join(Environment.NewLine, sections);
+    }
+
+    private static string FormatApiFailure(DockerApiException exception)
     {
         return
-            $"Command: {FormatCommand(result.FileName, result.Arguments)}{Environment.NewLine}" +
-            $"Exit code: {result.ExitCode}{Environment.NewLine}" +
-            $"stdout:{Environment.NewLine}{NormalizeOutput(result.StandardOutput)}{Environment.NewLine}" +
-            $"stderr:{Environment.NewLine}{NormalizeOutput(result.StandardError)}";
+            $"Status code: {(int)exception.StatusCode}{Environment.NewLine}" +
+            $"Message: {exception.Message}{Environment.NewLine}" +
+            $"Response: {NormalizeOutput(exception.ResponseBody)}";
     }
 
-    private static string FormatCommand(string fileName, IReadOnlyList<string> arguments)
-    {
-        return $"{fileName} {string.Join(" ", arguments.Select(QuoteArgument))}";
-    }
-
-    private static string QuoteArgument(string value)
-    {
-        return value.Any(char.IsWhiteSpace) ? $"\"{value}\"" : value;
-    }
-
-    private static string NormalizeOutput(string value)
+    private static string NormalizeOutput(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? "<empty>" : value.Trim();
     }
 
-    private async Task<PodmanContainerState> InspectContainerStateAsync()
-    {
-        var inspectResult = await RunProcessAsync(
-            "podman",
-            new[] { "inspect", "--format", "{{json .State}}", containerName },
-            repositoryRoot,
-            CommandTimeout);
-
-        if (inspectResult.ExitCode != 0)
-        {
-            throw new XunitException(
-                $"Failed to inspect container '{containerName}' for image '{imageDisplayName}'.{Environment.NewLine}" +
-                $"{FormatCommandFailure(inspectResult)}");
-        }
-
-        var state = JsonSerializer.Deserialize<PodmanContainerState>(inspectResult.StandardOutput, JsonOptions);
-
-        if (state is null)
-        {
-            throw new XunitException(
-                $"Podman returned an empty container state for '{containerName}'.{Environment.NewLine}{FormatCommandFailure(inspectResult)}");
-        }
-
-        return state;
-    }
-
-    private async Task<string> BuildStoppedContainerMessageAsync(TimeSpan minimumRuntime, PodmanContainerState state)
-    {
-        var logsResult = await RunProcessAsync(
-            "podman",
-            new[] { "logs", containerName },
-            repositoryRoot,
-            CommandTimeout);
-
-        return
-            $"Container for image '{imageDisplayName}' stopped before the required {minimumRuntime.TotalSeconds:0}-second stability window elapsed.{Environment.NewLine}" +
-            $"Status: {state.Status ?? "<unknown>"}{Environment.NewLine}" +
-            $"Running: {state.Running}{Environment.NewLine}" +
-            $"Exit code: {state.ExitCode?.ToString() ?? "<unknown>"}{Environment.NewLine}" +
-            $"Error: {state.Error ?? "<none>"}{Environment.NewLine}" +
-            $"Logs:{Environment.NewLine}{NormalizeOutput(logsResult.StandardOutput)}{Environment.NewLine}" +
-            $"Log stderr:{Environment.NewLine}{NormalizeOutput(logsResult.StandardError)}";
-    }
-
-    private async Task CleanupArtifactAsync(
-        List<string> failures,
-        string artifactType,
-        string artifactName,
-        IReadOnlyList<string> arguments)
+    private async Task<ContainerState> InspectContainerStateAsync(DockerClient client)
     {
         try
         {
-            var result = await RunProcessAsync("podman", arguments, repositoryRoot, CommandTimeout);
+            var inspectResponse = await client.Containers.InspectContainerAsync(
+                _containerName,
+                CancellationToken.None);
 
-            if (result.ExitCode != 0)
-            {
-                failures.Add(
-                    $"Failed to remove {artifactType} '{artifactName}'.{Environment.NewLine}{FormatCommandFailure(result)}");
-            }
+            return inspectResponse.State
+                ?? throw new XunitException($"Podman returned an empty container state for '{_containerName}'.");
         }
-        catch (Win32Exception exception)
+        catch (DockerApiException exception)
         {
-            failures.Add(
-                $"Failed to start Podman while removing {artifactType} '{artifactName}': {exception.Message}");
-        }
-        catch (TimeoutException exception)
-        {
-            failures.Add(
-                $"Timed out while removing {artifactType} '{artifactName}': {exception.Message}");
+            throw new XunitException(
+                $"Failed to inspect container '{_containerName}' for image '{_imageDisplayName}'.{Environment.NewLine}" +
+                $"{FormatApiFailure(exception)}");
         }
     }
 
-    private sealed record ProcessResult(
-        string FileName,
-        IReadOnlyList<string> Arguments,
-        int ExitCode,
-        string StandardOutput,
-        string StandardError);
-
-    private sealed class PodmanContainerState
+    private async Task<string> BuildStoppedContainerMessageAsync(
+        DockerClient client,
+        TimeSpan minimumRuntime,
+        ContainerState state)
     {
-        public string? Error { get; init; }
+        var logs = await TryGetContainerLogsAsync(client);
 
-        public int? ExitCode { get; init; }
+        return
+            $"Container for image '{_imageDisplayName}' stopped before the required {minimumRuntime.TotalSeconds:0}-second stability window elapsed.{Environment.NewLine}" +
+            $"Status: {state.Status ?? "<unknown>"}{Environment.NewLine}" +
+            $"Running: {state.Running}{Environment.NewLine}" +
+            $"Exit code: {state.ExitCode}{Environment.NewLine}" +
+            $"Error: {state.Error ?? "<none>"}{Environment.NewLine}" +
+            $"Logs:{Environment.NewLine}{NormalizeOutput(logs)}";
+    }
 
-        public bool Running { get; init; }
+    private async Task<string> TryGetContainerLogsAsync(DockerClient client)
+    {
+        try
+        {
+            using var logStream = await client.Containers.GetContainerLogsAsync(
+                _containerName,
+                tty: true,
+                new ContainerLogsParameters
+                {
+                    ShowStdout = true,
+                    ShowStderr = true,
+                },
+                CancellationToken.None);
 
-        public string? Status { get; init; }
+            var (stdout, stderr) = await logStream.ReadOutputToEndAsync(CancellationToken.None);
+
+            return string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    stdout?.Trim(),
+                    stderr?.Trim(),
+                }.Where(static value => !string.IsNullOrWhiteSpace(value)));
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            return string.Empty;
+        }
+        catch (DockerApiException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string GetArchivePath(string buildContextPath, string filePath)
+    {
+        return Path.GetRelativePath(buildContextPath, filePath)
+            .Replace(Path.DirectorySeparatorChar, '/')
+            .Replace(Path.AltDirectorySeparatorChar, '/');
     }
 }
 

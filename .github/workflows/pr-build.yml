@@ -28,8 +28,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y podman
 
-      - name: Show Podman Info
-        run: podman info
-
       - name: Run Image Smoke Tests
-        run: dotnet test ./SpectreAgentWrapper.sln --nologo
+        env:
+          DOCKER_HOST: unix:///tmp/podman.sock
+        run: |
+          nohup podman system service --time=0 $DOCKER_HOST >/tmp/podman-system-service.log 2>&1 &
+          podman info
+          dotnet test ./SpectreAgentWrapper.sln --nologo
